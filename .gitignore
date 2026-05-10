@@ -1,0 +1,43 @@
+# Private inputs and generated outputs
+*.pdf
+*.PDF
+*.csv
+*.CSV
+*.xlsx
+*.xls
+*.json
+*.jsonl
+*.log
+*.png
+*.jpg
+*.jpeg
+*.tif
+*.tiff
+*.webp
+work/
+debug/
+cache/
+ocr/
+rendered/
+output/
+tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
