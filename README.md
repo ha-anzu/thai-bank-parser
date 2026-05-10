@@ -20,34 +20,45 @@ python -m pip install -e ".[dev]"
 
 ## CLI
 
+The package installs two command names:
+
+- `thai-bank-parser` - full descriptive command
+- `tbp` - short daily-use alias
+
+Run the guided interactive flow:
+
+```powershell
+tbp start
+```
+
 List supported templates:
 
 ```powershell
-thai-bank-parser templates
+tbp templates
 ```
 
 Convert a statement:
 
 ```powershell
-thai-bank-parser convert --template krungsri --input "C:\Statements\krungsri.pdf" --output "C:\Statements\krungsri.csv"
+tbp convert --template krungsri --input "C:\Statements\krungsri.pdf" --output "C:\Statements\krungsri.csv"
 ```
 
 Validate a generated CSV:
 
 ```powershell
-thai-bank-parser validate --csv "C:\Statements\krungsri.csv"
+tbp validate --csv "C:\Statements\krungsri.csv"
 ```
 
 Convert the normalized parser CSV into the categorized sheet format:
 
 ```powershell
-thai-bank-parser categorize --input "C:\Statements\krungsri.csv" --output "C:\Statements\krungsri_categorized.csv"
+tbp categorize --input "C:\Statements\krungsri.csv" --output "C:\Statements\krungsri_categorized.csv"
 ```
 
 Useful conversion options:
 
 ```powershell
-thai-bank-parser convert `
+tbp convert `
   --template krungsri `
   --input "C:\Statements\krungsri.pdf" `
   --output "C:\Statements\krungsri.csv" `

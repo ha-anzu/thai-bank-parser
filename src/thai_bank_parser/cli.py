@@ -4,9 +4,11 @@ from pathlib import Path
 from typing import Optional
 
 import typer
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
+from rich.prompt import Confirm, Prompt
 from rich.table import Table
 from rich.text import Text
 
@@ -27,9 +29,27 @@ console = Console()
 
 
 def banner() -> None:
-    title = Text("THAI BANK PARSER", style="bold yellow")
-    subtitle = Text("local OCR -> bank template -> verified CSV", style="red")
-    console.print(Panel.fit(Text.assemble(title, "\n", subtitle), border_style="red"))
+    mascot = Text(
+        r"""
+   /\_/\
+  ( o.o )  red panda clerk
+   > ^ <   scan -> sort -> verify
+""",
+        style="bold red",
+    )
+    title = Text("TBP // THAI BANK PARSER", style="bold yellow")
+    subtitle = Text("playful local OCR for serious CSV cleanup", style="red")
+    console.print(Panel.fit(Text.assemble(mascot, "\n", title, "\n", subtitle), border_style="red", box=box.ROUNDED))
+
+
+def progress_columns() -> tuple:
+    return (
+        SpinnerColumn(spinner_name="dots12", style="bold red"),
+        TextColumn("[bold red]{task.description}"),
+        BarColumn(bar_width=36, complete_style="yellow", finished_style="green"),
+        TaskProgressColumn(),
+        TimeElapsedColumn(),
+    )
 
 
 def print_validation(result) -> None:
@@ -90,14 +110,7 @@ def convert_command(
         image_paths = render_table_pages(input_pdf, local_work_dir, template.table_crop, template.render_scale)
         boxes = run_ocr(image_paths, local_work_dir / "ocr_boxes.json", force_ocr, debug_json)
     else:
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[bold red]{task.description}"),
-            BarColumn(bar_width=36),
-            TaskProgressColumn(),
-            TimeElapsedColumn(),
-            console=console,
-        ) as progress:
+        with Progress(*progress_columns(), console=console) as progress:
             render_task = progress.add_task("Rendering pages", total=1)
 
             def render_progress(_stage: str, current: int, total: int) -> None:
@@ -147,7 +160,8 @@ def categorize_command(
 ) -> None:
     """Convert normalized CSV into the categorized sheet schema."""
     banner()
-    rows = convert_to_categorized(input_csv, output_csv, account_label, additional_info)
+    with console.status("[bold red]Red panda is reshaping the sheet...[/bold red]", spinner="dots12"):
+        rows = convert_to_categorized(input_csv, output_csv, account_label, additional_info)
     table = Table(title="Categorized Export", border_style="yellow", header_style="bold red")
     table.add_column("Output")
     table.add_column("Rows", justify="right")
@@ -155,6 +169,69 @@ def categorize_command(
     table.add_row(str(output_csv), str(len(rows)), f"{len(CATEGORIZED_COLUMNS)} columns")
     console.print(table)
     console.print("[bold green]Wrote categorized sheet[/bold green]")
+
+
+def ask_path(label: str, default: str = "") -> Path:
+    value = Prompt.ask(f"[bold yellow]{label}[/bold yellow]", default=default if default else None)
+    return Path(value.strip('"'))
+
+
+def choose_template() -> str:
+    implemented = [template.info.key for template in list_templates() if template.info.status == "implemented"]
+    default = implemented[0] if implemented else "krungsri"
+    answer = Prompt.ask(
+        "[bold yellow]Bank template[/bold yellow]",
+        choices=implemented,
+        default=default,
+        show_choices=True,
+    )
+    return answer
+
+
+@app.command("wizard")
+def wizard_command() -> None:
+    """Run an interactive step-by-step guide."""
+    banner()
+    console.print("[bold yellow]Choose a path:[/bold yellow]")
+    console.print("  [red]1[/red] Convert PDF -> normalized CSV")
+    console.print("  [red]2[/red] Categorize normalized CSV -> categorized sheet")
+    console.print("  [red]3[/red] Convert PDF -> normalized CSV -> categorized sheet")
+    choice = Prompt.ask("Mode", choices=["1", "2", "3"], default="3")
+
+    normalized_csv: Path | None = None
+    if choice in {"1", "3"}:
+        template_key = choose_template()
+        input_pdf = ask_path("Input PDF path")
+        default_output = str(input_pdf.with_suffix(".csv")) if input_pdf.suffix else "statement.csv"
+        output_csv = ask_path("Normalized CSV output path", default_output)
+        default_work = str(output_csv.parent / ".thai-bank-parser-work" / input_pdf.stem)
+        work_dir = ask_path("Local work/cache folder", default_work)
+        force_ocr = Confirm.ask("Force OCR instead of using cache?", default=False)
+
+        convert_command(
+            input_pdf=input_pdf,
+            output_csv=output_csv,
+            template_key=template_key,
+            work_dir=work_dir,
+            force_ocr=force_ocr,
+            debug_json=None,
+            quiet=False,
+        )
+        normalized_csv = output_csv
+
+    if choice in {"2", "3"}:
+        input_csv = normalized_csv or ask_path("Normalized CSV input path")
+        default_categorized = str(input_csv.with_name(f"{input_csv.stem}_categorized.csv"))
+        output_csv = ask_path("Categorized CSV output path", default_categorized)
+        account_label = Prompt.ask("Account label for From/To", default="Account")
+        additional_info = Prompt.ask("Additional_Info value", default="Converted by Thai Bank Parser")
+        categorize_command(input_csv=input_csv, output_csv=output_csv, account_label=account_label, additional_info=additional_info)
+
+
+@app.command("start")
+def start_command() -> None:
+    """Alias for the interactive wizard."""
+    wizard_command()
 
 
 if __name__ == "__main__":
