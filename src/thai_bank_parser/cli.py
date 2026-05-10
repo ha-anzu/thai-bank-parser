@@ -10,6 +10,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn
 from rich.table import Table
 from rich.text import Text
 
+from .categorized import CATEGORIZED_COLUMNS, convert_to_categorized
 from .io import read_csv, write_csv
 from .ocr import render_table_pages, run_ocr
 from .registry import get_template, list_templates
@@ -135,6 +136,25 @@ def validate_command(
     print_validation(result)
     if not result.ok:
         raise typer.Exit(code=2)
+
+
+@app.command("categorize")
+def categorize_command(
+    input_csv: Path = typer.Option(..., "--input", "-i", exists=True, readable=True, help="Normalized parser CSV."),
+    output_csv: Path = typer.Option(..., "--output", "-o", help="Categorized CSV output path."),
+    account_label: str = typer.Option("Account", "--account-label", help="Label for the account owner side."),
+    additional_info: str = typer.Option("", "--additional-info", help="Static Additional_Info value."),
+) -> None:
+    """Convert normalized CSV into the categorized sheet schema."""
+    banner()
+    rows = convert_to_categorized(input_csv, output_csv, account_label, additional_info)
+    table = Table(title="Categorized Export", border_style="yellow", header_style="bold red")
+    table.add_column("Output")
+    table.add_column("Rows", justify="right")
+    table.add_column("Schema", justify="right")
+    table.add_row(str(output_csv), str(len(rows)), f"{len(CATEGORIZED_COLUMNS)} columns")
+    console.print(table)
+    console.print("[bold green]Wrote categorized sheet[/bold green]")
 
 
 if __name__ == "__main__":

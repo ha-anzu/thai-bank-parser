@@ -38,6 +38,12 @@ Validate a generated CSV:
 thai-bank-parser validate --csv "C:\Statements\krungsri.csv"
 ```
 
+Convert the normalized parser CSV into the categorized sheet format:
+
+```powershell
+thai-bank-parser categorize --input "C:\Statements\krungsri.csv" --output "C:\Statements\krungsri_categorized.csv"
+```
+
 Useful conversion options:
 
 ```powershell
@@ -74,6 +80,19 @@ Every template should write the same CSV columns:
 | `description` | Description field from the statement. |
 | `ocr_confidence` | Lowest relevant OCR confidence for the row. |
 | `amount_source` | `ocr` or `balance_delta`. |
+
+## Categorized Sheet Export
+
+The `categorize` command converts the normalized CSV into the wider categorized
+sheet schema:
+
+```text
+tt number,date,time,datetime,datetime_iso,transaction,direction,amount,withdrawal,deposit,balance,channel,description,Type,Main_Category,Sub_Category,Sub2_Category,Sub3_Category,From,To,Column1,Memo / Note,Additional_Info,Reference_No
+```
+
+This export is intentionally separate from `convert`, so the clean normalized
+parser output remains unchanged. Categories are rule-based starting values that
+can be reviewed or edited later.
 
 ## Krungsri Template
 
