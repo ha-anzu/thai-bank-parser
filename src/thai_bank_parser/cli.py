@@ -14,7 +14,7 @@ from rich.text import Text
 
 from .categorized import CATEGORIZED_COLUMNS, convert_to_categorized
 from .io import read_csv, write_csv
-from .ocr import render_table_pages, run_ocr
+from .ocr import OCR_DEVICE_CHOICES, render_table_pages, run_ocr
 from .registry import get_template, list_templates
 from .templates.krungsri import KrungsriTemplate
 from .validation import validate_rows
@@ -93,10 +93,18 @@ def convert_command(
     template_key: str = typer.Option("krungsri", "--template", "-t", help="Bank template key."),
     work_dir: Optional[Path] = typer.Option(None, "--work-dir", help="Local OCR/render cache directory."),
     force_ocr: bool = typer.Option(False, "--force-ocr", help="Ignore cached OCR and run OCR again."),
+    ocr_device: str = typer.Option(
+        "auto",
+        "--ocr-device",
+        case_sensitive=False,
+        help="OCR execution preference: auto, cpu, cuda, or dml.",
+    ),
     debug_json: Optional[Path] = typer.Option(None, "--debug-json", help="Write OCR boxes for local debugging."),
     quiet: bool = typer.Option(False, "--quiet", "-q", help="Only print final result."),
 ) -> None:
     """Convert a scanned statement PDF into normalized CSV."""
+    if ocr_device.lower() not in OCR_DEVICE_CHOICES:
+        raise typer.BadParameter(f"OCR device must be one of: {', '.join(OCR_DEVICE_CHOICES)}")
     template = get_template(template_key)
     if not isinstance(template, KrungsriTemplate):
         raise typer.BadParameter(f"Template '{template_key}' is listed but not implemented yet.")
@@ -106,9 +114,19 @@ def convert_command(
         banner()
         console.print(f"[dim]Template:[/dim] [bold yellow]{template.info.key}[/bold yellow]  [dim]Input:[/dim] {input_pdf}")
 
+    def device_notice(active_device: str, fallback_reason: str, providers: list[str]) -> None:
+        if quiet:
+            return
+        provider_text = ", ".join(providers) if providers else "none"
+        if fallback_reason:
+            console.print(f"[yellow]OCR device:[/yellow] {active_device}  [dim]({fallback_reason})[/dim]")
+        else:
+            console.print(f"[green]OCR device:[/green] {active_device}")
+        console.print(f"[dim]ONNX providers: {provider_text}[/dim]")
+
     if quiet:
         image_paths = render_table_pages(input_pdf, local_work_dir, template.table_crop, template.render_scale)
-        boxes = run_ocr(image_paths, local_work_dir / "ocr_boxes.json", force_ocr, debug_json)
+        boxes = run_ocr(image_paths, local_work_dir / "ocr_boxes.json", force_ocr, debug_json, ocr_device)
     else:
         with Progress(*progress_columns(), console=console) as progress:
             render_task = progress.add_task("Rendering pages", total=1)
@@ -122,7 +140,15 @@ def convert_command(
             def ocr_progress(_stage: str, current: int, total: int) -> None:
                 progress.update(ocr_task, total=total, completed=current)
 
-            boxes = run_ocr(image_paths, local_work_dir / "ocr_boxes.json", force_ocr, debug_json, ocr_progress)
+            boxes = run_ocr(
+                image_paths,
+                local_work_dir / "ocr_boxes.json",
+                force_ocr,
+                debug_json,
+                ocr_device,
+                device_notice,
+                ocr_progress,
+            )
 
     rows = template.parse(boxes, input_pdf)
     write_csv(rows, output_csv)
@@ -207,6 +233,12 @@ def wizard_command() -> None:
         default_work = str(output_csv.parent / ".thai-bank-parser-work" / input_pdf.stem)
         work_dir = ask_path("Local work/cache folder", default_work)
         force_ocr = Confirm.ask("Force OCR instead of using cache?", default=False)
+        ocr_device = Prompt.ask(
+            "OCR device preference",
+            choices=list(OCR_DEVICE_CHOICES),
+            default="auto",
+            show_choices=True,
+        )
 
         convert_command(
             input_pdf=input_pdf,
@@ -214,6 +246,7 @@ def wizard_command() -> None:
             template_key=template_key,
             work_dir=work_dir,
             force_ocr=force_ocr,
+            ocr_device=ocr_device,
             debug_json=None,
             quiet=False,
         )

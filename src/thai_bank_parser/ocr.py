@@ -7,12 +7,45 @@ from pathlib import Path
 from typing import Callable
 
 import pypdfium2 as pdfium
+import onnxruntime as ort
 from rapidocr_onnxruntime import RapidOCR
 
 from .models import OcrBox
 
 
 Progress = Callable[[str, int, int], None]
+OCR_DEVICE_CHOICES = ("auto", "cpu", "cuda", "dml")
+
+
+def available_execution_providers() -> list[str]:
+    return list(ort.get_available_providers())
+
+
+def resolve_ocr_device(device: str, providers: list[str] | None = None) -> tuple[str, dict[str, bool], str | None]:
+    normalized = device.lower().strip()
+    if normalized not in OCR_DEVICE_CHOICES:
+        raise ValueError(f"Unknown OCR device '{device}'. Expected one of: {', '.join(OCR_DEVICE_CHOICES)}")
+
+    providers = providers or available_execution_providers()
+    has_cuda = "CUDAExecutionProvider" in providers
+    has_dml = "DmlExecutionProvider" in providers
+
+    if normalized == "cpu":
+        return "cpu", {}, None
+    if normalized == "cuda":
+        if has_cuda:
+            return "cuda", {"det_use_cuda": True, "cls_use_cuda": True, "rec_use_cuda": True}, None
+        return "cpu", {}, "CUDAExecutionProvider unavailable; falling back to CPU."
+    if normalized == "dml":
+        if has_dml:
+            return "dml", {"det_use_dml": True, "cls_use_dml": True, "rec_use_dml": True}, None
+        return "cpu", {}, "DmlExecutionProvider unavailable; falling back to CPU."
+
+    if has_cuda:
+        return "cuda", {"det_use_cuda": True, "cls_use_cuda": True, "rec_use_cuda": True}, None
+    if has_dml:
+        return "dml", {"det_use_dml": True, "cls_use_dml": True, "rec_use_dml": True}, None
+    return "cpu", {}, "No GPU execution provider available; using CPU."
 
 
 def render_table_pages(
@@ -46,6 +79,8 @@ def run_ocr(
     cache_path: Path,
     force: bool = False,
     debug_json: Path | None = None,
+    device: str = "auto",
+    device_notice: Callable[[str, str, list[str]], None] | None = None,
     progress: Progress | None = None,
 ) -> list[OcrBox]:
     if cache_path.exists() and not force:
@@ -55,7 +90,10 @@ def run_ocr(
             debug_json.write_text(cache_path.read_text(encoding="utf-8"), encoding="utf-8")
         return boxes
 
-    ocr = RapidOCR()
+    active_device, ocr_kwargs, fallback_reason = resolve_ocr_device(device)
+    if device_notice:
+        device_notice(active_device, fallback_reason or "", available_execution_providers())
+    ocr = RapidOCR(**ocr_kwargs)
     boxes: list[OcrBox] = []
     for index, image_path in enumerate(image_paths, start=1):
         if progress:

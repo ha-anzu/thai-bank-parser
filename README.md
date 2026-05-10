@@ -43,6 +43,19 @@ Convert a statement:
 tbp convert --template krungsri --input "C:\Statements\krungsri.pdf" --output "C:\Statements\krungsri.csv"
 ```
 
+Prefer GPU OCR when available, with CPU fallback:
+
+```powershell
+tbp convert --template krungsri --input "C:\Statements\krungsri.pdf" --output "C:\Statements\krungsri.csv" --ocr-device auto
+```
+
+OCR device choices:
+
+- `auto` - prefer CUDA, then DirectML, then CPU
+- `cuda` - use CUDA when ONNX Runtime CUDA is available, otherwise fall back to CPU
+- `dml` - use DirectML when available, otherwise fall back to CPU
+- `cpu` - force CPU
+
 Validate a generated CSV:
 
 ```powershell
@@ -62,6 +75,7 @@ tbp convert `
   --template krungsri `
   --input "C:\Statements\krungsri.pdf" `
   --output "C:\Statements\krungsri.csv" `
+  --ocr-device auto `
   --work-dir "C:\Statements\.parser-work" `
   --force-ocr `
   --debug-json "C:\Statements\.parser-work\ocr-debug.json"
