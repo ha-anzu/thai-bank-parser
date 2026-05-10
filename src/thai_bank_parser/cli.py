@@ -4,19 +4,16 @@ from pathlib import Path
 from typing import Optional
 
 import typer
-from rich import box
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import BarColumn, Progress, SpinnerColumn, TaskProgressColumn, TextColumn, TimeElapsedColumn
+from rich.progress import Progress
 from rich.prompt import Confirm, Prompt
 from rich.table import Table
-from rich.text import Text
 
 from .categorized import CATEGORIZED_COLUMNS, convert_to_categorized
 from .io import read_csv, write_csv
 from .ocr import OCR_DEVICE_CHOICES, render_table_pages, run_ocr
 from .registry import get_template, list_templates
 from .templates.krungsri import KrungsriTemplate
+from .ui import MenuAction, goodbye, menu_panel, pause, progress_columns, splash, step_panel, success_panel, templates_table, validation_panel, make_console
 from .validation import validate_rows
 
 
@@ -25,45 +22,15 @@ app = typer.Typer(
     rich_markup_mode="rich",
     help="[bold red]Thai Bank Parser[/bold red] turns scanned Thai bank statements into clean CSV.",
 )
-console = Console()
+console = make_console()
 
 
-def banner() -> None:
-    mascot = Text(
-        r"""
-   /\_/\
-  ( o.o )  red panda clerk
-   > ^ <   scan -> sort -> verify
-""",
-        style="bold red",
-    )
-    title = Text("TBP // THAI BANK PARSER", style="bold yellow")
-    subtitle = Text("playful local OCR for serious CSV cleanup", style="red")
-    console.print(Panel.fit(Text.assemble(mascot, "\n", title, "\n", subtitle), border_style="red", box=box.ROUNDED))
-
-
-def progress_columns() -> tuple:
-    return (
-        SpinnerColumn(spinner_name="dots12", style="bold red"),
-        TextColumn("[bold red]{task.description}"),
-        BarColumn(bar_width=36, complete_style="yellow", finished_style="green"),
-        TaskProgressColumn(),
-        TimeElapsedColumn(),
-    )
+def banner(animate: bool = False) -> None:
+    splash(console, animate=animate)
 
 
 def print_validation(result) -> None:
-    table = Table(title="Validation", border_style="yellow", header_style="bold red")
-    table.add_column("Check")
-    table.add_column("Value", justify="right")
-    table.add_row("Rows", str(result.rows))
-    table.add_row("Deposits / in", str(result.deposits))
-    table.add_row("Withdrawals / out", str(result.withdrawals))
-    table.add_row("Missing times", str(result.missing_times))
-    table.add_row("Missing ISO datetimes", str(result.missing_iso_datetimes))
-    table.add_row("Missing amounts", str(result.missing_amounts))
-    table.add_row("Bad balance deltas", str(result.bad_balance_deltas))
-    console.print(table)
+    console.print(validation_panel(result))
     if result.ok:
         console.print("[bold green]PASS[/bold green] CSV is internally consistent.")
     else:
@@ -74,16 +41,7 @@ def print_validation(result) -> None:
 def templates_command() -> None:
     """List available bank templates."""
     banner()
-    table = Table(title="Templates", border_style="yellow", header_style="bold red")
-    table.add_column("Key", style="bold yellow")
-    table.add_column("Bank")
-    table.add_column("Status")
-    table.add_column("Description")
-    for template in list_templates():
-        info = template.info
-        status_style = "green" if info.status == "implemented" else "dim"
-        table.add_row(info.key, info.bank, f"[{status_style}]{info.status}[/{status_style}]", info.description)
-    console.print(table)
+    console.print(templates_table(list_templates()))
 
 
 @app.command("convert")
@@ -217,54 +175,103 @@ def choose_template() -> str:
 @app.command("wizard")
 def wizard_command() -> None:
     """Run an interactive step-by-step guide."""
-    banner()
-    console.print("[bold yellow]Choose a path:[/bold yellow]")
-    console.print("  [red]1[/red] Convert PDF -> normalized CSV")
-    console.print("  [red]2[/red] Categorize normalized CSV -> categorized sheet")
-    console.print("  [red]3[/red] Convert PDF -> normalized CSV -> categorized sheet")
-    choice = Prompt.ask("Mode", choices=["1", "2", "3"], default="3")
+    run_workflow_menu(single_run=True)
 
-    normalized_csv: Path | None = None
-    if choice in {"1", "3"}:
-        template_key = choose_template()
-        input_pdf = ask_path("Input PDF path")
-        default_output = str(input_pdf.with_suffix(".csv")) if input_pdf.suffix else "statement.csv"
-        output_csv = ask_path("Normalized CSV output path", default_output)
-        default_work = str(output_csv.parent / ".thai-bank-parser-work" / input_pdf.stem)
-        work_dir = ask_path("Local work/cache folder", default_work)
-        force_ocr = Confirm.ask("Force OCR instead of using cache?", default=False)
-        ocr_device = Prompt.ask(
-            "OCR device preference",
-            choices=list(OCR_DEVICE_CHOICES),
-            default="auto",
-            show_choices=True,
-        )
 
-        convert_command(
-            input_pdf=input_pdf,
-            output_csv=output_csv,
-            template_key=template_key,
-            work_dir=work_dir,
-            force_ocr=force_ocr,
-            ocr_device=ocr_device,
-            debug_json=None,
-            quiet=False,
-        )
-        normalized_csv = output_csv
+def run_convert_flow() -> Path:
+    console.print(step_panel(1, "Choose the bank template", "Krungsri is implemented now; the registry is ready for more banks."))
+    template_key = choose_template()
+    console.print(step_panel(2, "Point to the statement PDF", "Use a local file path. The source PDF stays on this machine."))
+    input_pdf = ask_path("Input PDF path")
+    default_output = str(input_pdf.with_suffix(".csv")) if input_pdf.suffix else "statement.csv"
+    output_csv = ask_path("Normalized CSV output path", default_output)
+    default_work = str(output_csv.parent / ".thai-bank-parser-work" / input_pdf.stem)
+    work_dir = ask_path("Local work/cache folder", default_work)
+    console.print(step_panel(3, "Pick OCR behavior", "Auto tries the best available provider and falls back to CPU when needed."))
+    force_ocr = Confirm.ask("Force OCR instead of using cache?", default=False)
+    ocr_device = Prompt.ask(
+        "OCR device preference",
+        choices=list(OCR_DEVICE_CHOICES),
+        default="auto",
+        show_choices=True,
+    )
 
-    if choice in {"2", "3"}:
-        input_csv = normalized_csv or ask_path("Normalized CSV input path")
-        default_categorized = str(input_csv.with_name(f"{input_csv.stem}_categorized.csv"))
-        output_csv = ask_path("Categorized CSV output path", default_categorized)
-        account_label = Prompt.ask("Account label for From/To", default="Account")
-        additional_info = Prompt.ask("Additional_Info value", default="Converted by Thai Bank Parser")
-        categorize_command(input_csv=input_csv, output_csv=output_csv, account_label=account_label, additional_info=additional_info)
+    convert_command(
+        input_pdf=input_pdf,
+        output_csv=output_csv,
+        template_key=template_key,
+        work_dir=work_dir,
+        force_ocr=force_ocr,
+        ocr_device=ocr_device,
+        debug_json=None,
+        quiet=False,
+    )
+    return output_csv
+
+
+def run_categorize_flow(input_csv: Path | None = None) -> Path:
+    console.print(step_panel(1, "Choose the normalized CSV", "This should be the CSV created by `tbp convert`."))
+    source_csv = input_csv or ask_path("Normalized CSV input path")
+    default_categorized = str(source_csv.with_name(f"{source_csv.stem}_categorized.csv"))
+    output_csv = ask_path("Categorized CSV output path", default_categorized)
+    account_label = Prompt.ask("Account label for From/To", default="Account")
+    additional_info = Prompt.ask("Additional_Info value", default="Converted by Thai Bank Parser")
+    categorize_command(input_csv=source_csv, output_csv=output_csv, account_label=account_label, additional_info=additional_info)
+    return output_csv
+
+
+def run_validate_flow() -> None:
+    console.print(step_panel(1, "Choose the CSV to validate", "The validator checks required fields and balance movement."))
+    csv_path = ask_path("CSV path")
+    validate_command(csv_path=csv_path)
+
+
+def run_templates_flow() -> None:
+    templates_command()
+
+
+def run_workflow_menu(single_run: bool = False) -> None:
+    banner(animate=True)
+    actions = [
+        MenuAction("1", "Full pipeline", "PDF -> normalized CSV -> categorized sheet"),
+        MenuAction("2", "Convert statement", "PDF -> normalized CSV with OCR validation"),
+        MenuAction("3", "Categorize sheet", "Normalized CSV -> sample-style categorized CSV"),
+        MenuAction("4", "Validate CSV", "Check times, amounts, ISO datetimes, and balance deltas"),
+        MenuAction("5", "Templates", "See implemented and planned bank templates"),
+        MenuAction("q", "Quit", "Leave the command deck"),
+    ]
+
+    while True:
+        console.print(menu_panel(actions))
+        choice = Prompt.ask("[bold yellow]Select action[/bold yellow]", choices=["1", "2", "3", "4", "5", "q"], default="1")
+
+        if choice == "1":
+            normalized_csv = run_convert_flow()
+            run_categorize_flow(normalized_csv)
+            console.print(success_panel("Full pipeline complete", [f"Normalized: {normalized_csv}", "Categorized export written."]))
+        elif choice == "2":
+            output = run_convert_flow()
+            console.print(success_panel("Conversion complete", [str(output)]))
+        elif choice == "3":
+            output = run_categorize_flow()
+            console.print(success_panel("Categorized export complete", [str(output)]))
+        elif choice == "4":
+            run_validate_flow()
+        elif choice == "5":
+            run_templates_flow()
+        else:
+            goodbye(console)
+            return
+
+        if single_run:
+            return
+        pause(console)
 
 
 @app.command("start")
 def start_command() -> None:
     """Alias for the interactive wizard."""
-    wizard_command()
+    run_workflow_menu(single_run=False)
 
 
 if __name__ == "__main__":

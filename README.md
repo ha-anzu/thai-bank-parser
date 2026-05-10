@@ -53,6 +53,10 @@ Run the guided interactive flow:
 tbp start
 ```
 
+`tbp start` opens the red panda command deck: an animated, menu-driven CLI
+that guides users through conversion, categorized export, validation, and
+template discovery. The direct commands below remain scriptable for automation.
+
 List supported templates:
 
 ```powershell
