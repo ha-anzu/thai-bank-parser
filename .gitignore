@@ -35,6 +35,9 @@ venv/
 dist/
 build/
 *.egg-info/
+offline-bundle/
+portable-windows/
+wheelhouse/
 
 # Editors / OS
 .DS_Store

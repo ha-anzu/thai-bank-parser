@@ -18,6 +18,28 @@ For development:
 python -m pip install -e ".[dev]"
 ```
 
+## Offline Bundle
+
+To install on a machine without downloads, build an offline wheel bundle first:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_offline_bundle.ps1 -Python python
+```
+
+Then copy `offline-bundle/` to the target machine and run:
+
+```powershell
+cd offline-bundle
+powershell -ExecutionPolicy Bypass -File .\install_offline.ps1 -Python python
+```
+
+See [OFFLINE.md](OFFLINE.md) for details. The bundle includes dependency wheels
+and the RapidOCR wheel that contains the ONNX OCR models, so runtime OCR does
+not need to download model files.
+
+For a carryable Windows folder that also includes a Python runtime, see the
+portable Windows section in [OFFLINE.md](OFFLINE.md).
+
 ## CLI
 
 The package installs two command names:
